@@ -1,0 +1,103 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/golang:1.8
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Setup common environment variables
+          command: |
+            echo 'export ECR_REPOSITORY_NAME_WP="wp"' >> $BASH_ENV
+            echo 'export ECR_REPOSITORY_NAME_MYSQL="mysql"' >> $BASH_ENV
+            echo 'export FULL_IMAGE_NAME_WP="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_WP}:${CIRCLE_SHA1}"' >> $BASH_ENV
+            echo 'export FULL_IMAGE_NAME_MYSQL="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_MYSQL}:${CIRCLE_SHA1}"' >> $BASH_ENV
+      - run:
+          name: Build image
+          command: |
+            pwd
+            ls -al ./
+            docker build -t $FULL_IMAGE_NAME_WP -f ./wp/Dockerfile .
+            docker build -t $FULL_IMAGE_NAME_MYSQL -f ./mysql/Dockerfile .
+      - run:
+          name: Test image
+          command: |
+            docker run -d -p 8000:80 --name wp-test $FULL_IMAGE_NAME_WP
+            docker run -d --name mysql-test $FULL_IMAGE_NAME_MYSQL
+      - run:
+          name: Save image to an archive
+          command: |
+            mkdir docker-image
+            docker save -o docker-image/image_wp.tar $FULL_IMAGE_NAME_WP
+            docker save -o docker-image/image_mysql.tar $FULL_IMAGE_NAME_MYSQL
+      - persist_to_workspace:
+          root: .
+          paths:
+            - docker-image
+  deploy:  
+    docker:
+      - image: circleci/python:3.6.1
+    environment:
+      AWS_DEFAULT_OUTPUT: json
+    steps:
+      - checkout
+      - setup_remote_docker
+      - attach_workspace:
+          at: workspace
+      - restore_cache:
+          key: v1-{{ checksum "requirements.txt" }}
+      - run:
+          name: Install awscli
+          command: |
+            python3 -m venv venv
+            . venv/bin/activate
+            pip install -r requirements.txt
+      - save_cache:
+          key: v1-{{ checksum "requirements.txt" }}
+          paths:
+            - "venv"
+      - run:
+          name: Load image
+          command: |
+            docker load --input workspace/docker-image/image_wp.tar
+            docker load --input workspace/docker-image/image_mysql.tar
+      - run:
+          name: Setup common environment variables
+          command: |
+            echo 'export ECR_REPOSITORY_NAME_WP="wp"' >> $BASH_ENV
+            echo 'export ECR_REPOSITORY_NAME_MYSQL="mysql"' >> $BASH_ENV
+      - run:
+          name: Push image
+          command: |
+            . venv/bin/activate
+            eval $(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)
+            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_WP
+            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_MYSQL
+  deploy_ssh:
+    machine:
+      enabled: true
+    steps:
+      - checkout
+      - add_ssh_keys:  
+          fingerprints: 99:bb:bc:a8:6e:6c:bb:f2:5d:c3:f8:50:71:9f:6a:0e
+      - run:
+          name: Deploy Over SSH
+          command: |
+            rsync -av ./docker-compose.yml $SSH_USER@$SSH_HOST:/home/$SSH_USER/
+            ssh $SSH_USER@$SSH_HOST "eval $(aws ecr get-login --region ap-northeast-1 --no-include-email)"
+            ssh $SSH_USER@$SSH_HOST "source ./.env.sh; docker stack deploy wp-test -c docker-compose.yml --with-registry-auth" 
+workflows:
+  version: 2
+  build_deploy:
+    jobs:
+      - build
+      - deploy: 
+          requires:
+            - build
+      - deploy_ssh:
+          requires:
+            - deploy
+          filters: 
+            branches:
+              only: 
