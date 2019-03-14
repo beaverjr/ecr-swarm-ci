@@ -29,6 +29,7 @@ export ECR_REPOSITORY_NAME_MYSQL=mysql
 * EC2 Container Registry must already be set up on AWS
 * Docker swarm cluster must already be created on your server
 
+* php code must already be created on your server
 
 ## Usage
-CircleCI automatically runs your build and test processes, and push image to ECR, deploy on Docker swarm from ECR when you update docker-compose.yml or Dockerfile.
+CircleCI automatically runs your build and test processes, and push image to ECR, deploy on Docker swarm from ECR when you update docker-compose*.yml or Dockerfile.

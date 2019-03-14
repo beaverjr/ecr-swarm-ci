@@ -11,8 +11,12 @@ jobs:
           command: |
             echo 'export ECR_REPOSITORY_NAME_WP="wp"' >> $BASH_ENV
             echo 'export ECR_REPOSITORY_NAME_MYSQL="mysql"' >> $BASH_ENV
+            echo 'export ECR_REPOSITORY_NAME_NGINX="nginx"' >> $BASH_ENV
+            echo 'export ECR_REPOSITORY_NAME_PHPFPM="php-fpm"' >> $BASH_ENV
             echo 'export FULL_IMAGE_NAME_WP="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_WP}:${CIRCLE_SHA1}"' >> $BASH_ENV
             echo 'export FULL_IMAGE_NAME_MYSQL="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_MYSQL}:${CIRCLE_SHA1}"' >> $BASH_ENV
+            echo 'export FULL_IMAGE_NAME_NGINX="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_NGINX}:${CIRCLE_SHA1}"' >> $BASH_ENV
+            echo 'export FULL_IMAGE_NAME_PHPFPM="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_PHPFPM}:${CIRCLE_SHA1}"' >> $BASH_ENV
       - run:
           name: Build image
           command: |
@@ -20,17 +24,24 @@ jobs:
             ls -al ./
             docker build -t $FULL_IMAGE_NAME_WP -f ./wp/Dockerfile .
             docker build -t $FULL_IMAGE_NAME_MYSQL -f ./mysql/Dockerfile .
+            docker build -t $FULL_IMAGE_NAME_NGINX -f ./nginx/Dockerfile .
+            docker build -t $FULL_IMAGE_NAME_PHPFPM -f ./php-fpm/Dockerfile .
       - run:
           name: Test image
           command: |
             docker run -d -p 8000:80 --name wp-test $FULL_IMAGE_NAME_WP
             docker run -d --name mysql-test $FULL_IMAGE_NAME_MYSQL
+            docker run -d -p 8080:80 --name nginx-test $FULL_IMAGE_NAME_NGINX
+            docker run -d --name phpfpm-test $FULL_IMAGE_NAME_PHPFPM
+            
       - run:
           name: Save image to an archive
           command: |
             mkdir docker-image
             docker save -o docker-image/image_wp.tar $FULL_IMAGE_NAME_WP
             docker save -o docker-image/image_mysql.tar $FULL_IMAGE_NAME_MYSQL
+            docker save -o docker-image/image_nginx.tar $FULL_IMAGE_NAME_NGINX
+            docker save -o docker-image/image_phpfpm.tar $FULL_IMAGE_NAME_PHPFPM
       - persist_to_workspace:
           root: .
           paths:
@@ -62,11 +73,26 @@ jobs:
           command: |
             docker load --input workspace/docker-image/image_wp.tar
             docker load --input workspace/docker-image/image_mysql.tar
+            docker load --input workspace/docker-image/image_nginx.tar
+            docker load --input workspace/docker-image/image_phpfpm.tar
       - run:
           name: Setup common environment variables
           command: |
             echo 'export ECR_REPOSITORY_NAME_WP="wp"' >> $BASH_ENV
             echo 'export ECR_REPOSITORY_NAME_MYSQL="mysql"' >> $BASH_ENV
+            echo 'export ECR_REPOSITORY_NAME_NGINX="nginx"' >> $BASH_ENV
+            echo 'export ECR_REPOSITORY_NAME_PHPFPM="php-fpm"' >> $BASH_ENV
+            echo 'export FULL_IMAGE_NAME_WP="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_WP}:${CIRCLE_SHA1}"' >> $BASH_ENV
+            echo 'export FULL_IMAGE_NAME_MYSQL="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_MYSQL}:${CIRCLE_SHA1}"' >> $BASH_ENV
+            echo 'export FULL_IMAGE_NAME_NGINX="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_NGINX}:${CIRCLE_SHA1}"' >> $BASH_ENV
+            echo 'export FULL_IMAGE_NAME_PHPFPM="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_PHPFPM}:${CIRCLE_SHA1}"' >> $BASH_ENV
+      - run:
+          name: tag to latest
+          command: |
+            docker tag $FULL_IMAGE_NAME_WP $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_WP:latest
+            docker tag $FULL_IMAGE_NAME_MYSQL $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_MYSQL:latest 
+            docker tag $FULL_IMAGE_NAME_NGINX $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_NGINX:latest
+            docker tag $FULL_IMAGE_NAME_PHPFPM $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_PHPFPM:latest
       - run:
           name: Push image
           command: |
@@ -74,6 +100,8 @@ jobs:
             eval $(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)
             docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_WP
             docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_MYSQL
+            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_NGINX
+            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_PHPFPM
   deploy_ssh:
     machine:
       enabled: true
@@ -84,9 +112,11 @@ jobs:
       - run:
           name: Deploy Over SSH
           command: |
-            rsync -av ./docker-compose.yml $SSH_USER@$SSH_HOST:/home/$SSH_USER/
+            rsync -av ./docker-compose-wp.yml $SSH_USER@$SSH_HOST:/home/$SSH_USER/
+            rsync -av ./docker-compose-np.yml $SSH_USER@$SSH_HOST:/home/$SSH_USER/
             ssh $SSH_USER@$SSH_HOST "eval $(aws ecr get-login --region ap-northeast-1 --no-include-email)"
-            ssh $SSH_USER@$SSH_HOST "source ./.env.sh; docker stack deploy wp-test -c docker-compose.yml --with-registry-auth" 
+            ssh $SSH_USER@$SSH_HOST "source ./.env.sh; docker stack deploy wp-test -c docker-compose-wp.yml --with-registry-auth" 
+            ssh $SSH_USER@$SSH_HOST "source ./.env.sh; docker stack deploy np-test -c docker-compose-np.yml --with-registry-auth" 
 workflows:
   version: 2
   build_deploy:
@@ -101,3 +131,4 @@ workflows:
           filters: 
             branches:
               only: 
+           
