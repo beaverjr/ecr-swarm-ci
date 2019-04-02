@@ -17,14 +17,14 @@ AWS_DEFAULT_REGION *aws default region
 CA_PEM *Trust certs signed only by this CA
 CERT_PEM *TLS certificate
 KEY_PEM *TLS key
-DOCKER_DIRECTORY *
+DOCKER_DIRECTORY *directory path which contains php code
+SERVER_IP *ip or hostname of the server that docker swarm running
 ```
 *Create a CA, server and client keys with OpenSSL
 https://docs.docker.com/engine/security/https/ 
 
 * EC2 Container Registry must already be set up on AWS
 * Docker swarm cluster must already be created on your server
-
 * php code must already be created on your server
 
 ## Usage
