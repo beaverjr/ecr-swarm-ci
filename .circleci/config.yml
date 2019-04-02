@@ -53,7 +53,8 @@ jobs:
       AWS_DEFAULT_OUTPUT: json
     steps:
       - checkout
-      - setup_remote_docker
+      - setup_remote_docker:
+          version: 18.06.0-ce
       - attach_workspace:
           at: workspace
       - restore_cache:
@@ -87,36 +88,37 @@ jobs:
             echo 'export FULL_IMAGE_NAME_NGINX="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_NGINX}:${CIRCLE_SHA1}"' >> $BASH_ENV
             echo 'export FULL_IMAGE_NAME_PHPFPM="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR_REPOSITORY_NAME_PHPFPM}:${CIRCLE_SHA1}"' >> $BASH_ENV
       - run:
-          name: tag to latest
-          command: |
-            docker tag $FULL_IMAGE_NAME_WP $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_WP:latest
-            docker tag $FULL_IMAGE_NAME_MYSQL $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_MYSQL:latest 
-            docker tag $FULL_IMAGE_NAME_NGINX $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_NGINX:latest
-            docker tag $FULL_IMAGE_NAME_PHPFPM $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_PHPFPM:latest
-      - run:
           name: Push image
           command: |
             . venv/bin/activate
             eval $(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)
-            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_WP
-            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_MYSQL
-            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_NGINX
-            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME_PHPFPM
-  deploy_ssh:
+            docker push $FULL_IMAGE_NAME_WP
+            docker push $FULL_IMAGE_NAME_MYSQL
+            docker push $FULL_IMAGE_NAME_NGINX
+            docker push $FULL_IMAGE_NAME_PHPFPM
+  deploy_api:
     machine:
+      image: circleci/classic:201808-01
       enabled: true
     steps:
       - checkout
-      - add_ssh_keys:  
-          fingerprints: 99:bb:bc:a8:6e:6c:bb:f2:5d:c3:f8:50:71:9f:6a:0e
       - run:
-          name: Deploy Over SSH
+          name: Setup common environment variables
           command: |
-            rsync -av ./docker-compose-wp.yml $SSH_USER@$SSH_HOST:/home/$SSH_USER/
-            rsync -av ./docker-compose-np.yml $SSH_USER@$SSH_HOST:/home/$SSH_USER/
-            ssh $SSH_USER@$SSH_HOST "eval $(aws ecr get-login --region ap-northeast-1 --no-include-email)"
-            ssh $SSH_USER@$SSH_HOST "source ./.env.sh; docker stack deploy wp-test -c docker-compose-wp.yml --with-registry-auth" 
-            ssh $SSH_USER@$SSH_HOST "source ./.env.sh; docker stack deploy np-test -c docker-compose-np.yml --with-registry-auth" 
+            echo 'export ECR_REPOSITORY_NAME_WP="wp"' >> $BASH_ENV
+            echo 'export ECR_REPOSITORY_NAME_MYSQL="mysql"' >> $BASH_ENV
+            echo 'export ECR_REPOSITORY_NAME_NGINX="nginx"' >> $BASH_ENV
+            echo 'export ECR_REPOSITORY_NAME_PHPFPM="php-fpm"' >> $BASH_ENV
+      - run:
+          name: Deploy
+          command: |
+            eval $(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)
+            echo '-----BEGIN CERTIFICATE-----' > ca.pem && echo $CA_PEM | sed -e 's/\s\+/\n/g' >> ca.pem && echo '-----END CERTIFICATE-----' >> ca.pem
+            echo '-----BEGIN CERTIFICATE-----' > cert.pem && echo $CERT_PEM | sed -e 's/\s\+/\n/g' >> cert.pem && echo '-----END CERTIFICATE-----' >> cert.pem
+            echo '-----BEGIN RSA PRIVATE KEY-----' > key.pem && echo $KEY_PEM | sed -e 's/\s\+/\n/g' >> key.pem && echo '-----END RSA PRIVATE KEY-----' >> key.pem
+            docker --tls --tlscacert=ca.pem --tlscert=cert.pem --tlskey=key.pem -H tcp://$SERVER_IP:2376 stack deploy wp-test -c ./docker-compose-wp.yml --with-registry-auth
+            docker --tls --tlscacert=ca.pem --tlscert=cert.pem --tlskey=key.pem -H tcp://$SERVER_IP:2376 stack deploy np-test -c ./docker-compose-np.yml --with-registry-auth
+            docker --tls --tlscacert=ca.pem --tlscert=cert.pem --tlskey=key.pem -H tcp://$SERVER_IP:2376 service ls
 workflows:
   version: 2
   build_deploy:
@@ -125,7 +127,7 @@ workflows:
       - deploy: 
           requires:
             - build
-      - deploy_ssh:
+      - deploy_api:
           requires:
             - deploy
           filters: 

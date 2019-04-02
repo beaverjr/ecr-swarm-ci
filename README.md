@@ -10,22 +10,18 @@ This is  an example of how to build and test a Dockerized web application on Cir
 
 * Configure a few CircleCI environment variables before the deploy script will work
 ```
-AWS_ACCOUNT_ID
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-AWS_DEFAULT_REGION
-SSH_USER
-SSH_HOST
+AWS_ACCOUNT_ID  *your aws account id
+AWS_ACCESS_KEY_ID *your aws access key id
+AWS_SECRET_ACCESS_KEY *your aws secret access key
+AWS_DEFAULT_REGION *aws default region
+CA_PEM *Trust certs signed only by this CA
+CERT_PEM *TLS certificate
+KEY_PEM *TLS key
+DOCKER_DIRECTORY *
 ```
-* Add an SSH Key to CircleCI
+*Create a CA, server and client keys with OpenSSL
+https://docs.docker.com/engine/security/https/ 
 
-* Define following environment variables in a .env file and place it in the same directory as the docker-compose.yml
-```
-export AWS_ACCOUNT_ID=your aws account id
-export AWS_DEFAULT_REGION=aws reagion
-export ECR_REPOSITORY_NAME_WP=wp
-export ECR_REPOSITORY_NAME_MYSQL=mysql
-```
 * EC2 Container Registry must already be set up on AWS
 * Docker swarm cluster must already be created on your server
 
